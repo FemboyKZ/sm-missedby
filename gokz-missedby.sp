@@ -13,7 +13,7 @@
 
 public Plugin myinfo =
 {
-	name        = "Jump Miss Helper",
+	name        = "GOKZ Jump Miss Helper",
 	author      = "jvnipers",
 	description = "Create and manage jump zones that display how much you missed a jump by.",
 	version     = "1.0",
