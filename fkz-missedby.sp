@@ -13,38 +13,39 @@
 
 public Plugin myinfo =
 {
-    name        = "GOKZ Jump Miss Helper",
+    name        = "FKZ Miss Helper",
     author      = "jvnipers",
     description = "Create and manage jump zones that display how much you missed a jump by.",
-    version     = "1.0.1",
-    url         = "https://github.com/FemboyKZ/gokz-missedby"
+    version     = "1.0.2",
+    url         = "https://github.com/FemboyKZ/sm-missedby"
 };
 
-#define MAX_ZONES          512
-#define STEAMID_LEN        32
-#define MAX_NAME_LEN       64
-#define DEFAULTS_PATH      "configs/missedby.cfg"
+#define MAX_ZONES            512
+#define STEAMID_LEN          32
+#define MAX_NAME_LEN         64
+#define DEFAULTS_PATH        "configs/missedby.cfg"
 
 // Source engine ground epsilon: player origin sits exactly this far above the surface.
 // threshold_z = surface_hit_z (or abs_origin_z) - GROUND_EPSILON = actual floor level.
-#define GROUND_EPSILON     0.03125
+#define GROUND_EPSILON       0.03125
 
 // Placement modes for the zone setup menu
-#define PLACE_MODE_SNAP    0    // find nearest surface edge in any direction, then snap to nearby wall
-#define PLACE_MODE_PRECISE 1    // exact crosshair hit point
-#define PLACE_MODE_FEET    2    // player's current foot position (GetClientAbsOrigin)
+#define PLACE_MODE_SNAP_GRID 0    // crosshair hit rounded to the nearest whole hammer unit
+#define PLACE_MODE_SNAP      1    // find nearest surface edge in any direction, then snap to nearby wall
+#define PLACE_MODE_PRECISE   2    // exact crosshair hit point
+#define PLACE_MODE_FEET      3    // player's current foot position (GetClientAbsOrigin)
 
 // Snap-mode tuning
-#define EDGE_PROBE_DIST    8.0      // probe ray half-length perpendicular to surface
-#define EDGE_SEARCH_DIST   512.0    // max distance along surface to search for an edge
-#define EDGE_ITERATIONS    20       // binary search steps
-#define SNAP_DIRS          16       // radial sample count for nearest-edge search
-#define SNAP_WALL_DIST     8.0      // snap to wall if wall face is within this distance
-#define NORMAL_DOT_MIN     0.95     // cos ~18 deg - surface must match this closely
+#define EDGE_PROBE_DIST      8.0      // probe ray half-length perpendicular to surface
+#define EDGE_SEARCH_DIST     512.0    // max distance along surface to search for an edge
+#define EDGE_ITERATIONS      20       // binary search steps
+#define SNAP_DIRS            16       // radial sample count for nearest-edge search
+#define SNAP_WALL_DIST       8.0      // snap to wall if wall face is within this distance
+#define NORMAL_DOT_MIN       0.95     // cos ~18 deg - surface must match this closely
 
 // Workspace cross marker
-#define WS_CROSS_SIZE      8.0     // half-width of the X marker in world units
-#define WS_CROSS_LIFE      0.97    // beam life slightly under the 1s repeat interval
+#define WS_CROSS_SIZE        8.0     // half-width of the X marker in world units
+#define WS_CROSS_LIFE        0.97    // beam life slightly under the 1s repeat interval
 
 // ===== Zone store =====
 
@@ -83,7 +84,7 @@ float     g_fWsThreshZ[MAXPLAYERS + 1];
 bool      g_bWsThreshDown[MAXPLAYERS + 1];
 bool      g_bWsInProgress[MAXPLAYERS + 1];
 bool      g_bAwaitingName[MAXPLAYERS + 1];
-int       g_iPlaceMode[MAXPLAYERS + 1];    // PLACE_MODE_SNAP, PLACE_MODE_PRECISE, or PLACE_MODE_FEET
+int       g_iPlaceMode[MAXPLAYERS + 1];    // PLACE_MODE_SNAP_GRID, _SNAP, _PRECISE, or _FEET
 
 // Workspace cross markers - indices: 0=p0, 1=p1, 2=p2, 3=threshz
 float     g_fWsPos3D[MAXPLAYERS + 1][4][3];
@@ -160,7 +161,7 @@ public void OnClientPutInServer(int client)
     g_hDisabledZones[client] = new ArrayList();
     g_bWsInProgress[client]  = false;
     g_bAwaitingName[client]  = false;
-    g_iPlaceMode[client]     = PLACE_MODE_SNAP;
+    g_iPlaceMode[client]     = PLACE_MODE_SNAP_GRID;
     g_bWsThreshDown[client]  = true;
     g_hWsCrossTimer[client]  = null;
     for (int i = 0; i < 4; i++)
@@ -851,7 +852,8 @@ void OpenSetupMenu(int client)
     // Mode toggle is always first
     char modeLabel[48];
     char modeName[16];
-    if (g_iPlaceMode[client] == PLACE_MODE_SNAP) strcopy(modeName, sizeof(modeName), "Snap");
+    if (g_iPlaceMode[client] == PLACE_MODE_SNAP_GRID) strcopy(modeName, sizeof(modeName), "Grid");
+    else if (g_iPlaceMode[client] == PLACE_MODE_SNAP) strcopy(modeName, sizeof(modeName), "Snap");
     else if (g_iPlaceMode[client] == PLACE_MODE_PRECISE) strcopy(modeName, sizeof(modeName), "Precise");
     else strcopy(modeName, sizeof(modeName), "Feet");
     FormatEx(modeLabel, sizeof(modeLabel), "Mode: %s", modeName);
@@ -906,9 +908,10 @@ public int MenuHandler_Setup(Menu menu, MenuAction action, int client, int param
         }
         else if (StrEqual(info, "mode"))
         {
-            if (g_iPlaceMode[client] == PLACE_MODE_SNAP) g_iPlaceMode[client] = PLACE_MODE_PRECISE;
+            if (g_iPlaceMode[client] == PLACE_MODE_SNAP_GRID) g_iPlaceMode[client] = PLACE_MODE_SNAP;
+            else if (g_iPlaceMode[client] == PLACE_MODE_SNAP) g_iPlaceMode[client] = PLACE_MODE_PRECISE;
             else if (g_iPlaceMode[client] == PLACE_MODE_PRECISE) g_iPlaceMode[client] = PLACE_MODE_FEET;
-            else g_iPlaceMode[client] = PLACE_MODE_SNAP;
+            else g_iPlaceMode[client] = PLACE_MODE_SNAP_GRID;
             OpenSetupMenu(client);
         }
         else if (StrEqual(info, "saveas"))
@@ -1164,7 +1167,13 @@ void PlaceWorkspacePoint(int client, const char[] point)
         placePos[1] = hitPos[1];
         placePos[2] = hitPos[2];
 
-        if (g_iPlaceMode[client] == PLACE_MODE_SNAP)
+        if (g_iPlaceMode[client] == PLACE_MODE_SNAP_GRID)
+        {
+            placePos[0] = RoundToNearest(placePos[0]) * 1.0;
+            placePos[1] = RoundToNearest(placePos[1]) * 1.0;
+            placePos[2] = RoundToNearest(placePos[2]) * 1.0;
+        }
+        else if (g_iPlaceMode[client] == PLACE_MODE_SNAP)
         {
             float edgePos[3];
             if (FindNearestEdge(hitPos, hitNorm, edgePos))
