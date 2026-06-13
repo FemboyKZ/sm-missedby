@@ -10,7 +10,6 @@ on:
     tags:
       - "*"
 
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: 'true'
+          submodules: "true"
 
       - name: Set environment variables
         run: |
@@ -40,12 +39,12 @@ jobs:
 
       - name: Compile Plugins
         run: |
-          for file in gokz-missedby*.sp
+          for file in fkz-missedby*.sp
           do
             echo -e "\nCompiling $file..."
             spcomp -w234 -O2 -v2 -i include -i gokz/addons/sourcemod/scripting/include $file
           done
-        working-directory: ${{ env.SCRIPTS_PATH }}
+        working-directory: .
 
       - name: Move compiled plugins
         run: |
@@ -69,14 +68,14 @@ jobs:
         working-directory: ./build
 
       - name: Compress package
-        run: zip -9rq ../gokz-missedby.zip *
+        run: zip -9rq ../fkz-missedby.zip *
         working-directory: ./build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: gokz-missedby
-          path: gokz-missedby.zip
+          name: fkz-missedby
+          path: fkz-missedby.zip
 
       - name: Get the version
         id: get_version
@@ -90,6 +89,6 @@ jobs:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           name: ${{ steps.get_version.outputs.VERSION }}
           files: |
-            gokz-missedby.zip
+            fkz-missedby.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
