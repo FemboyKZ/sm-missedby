@@ -16,7 +16,7 @@ public Plugin myinfo =
     name        = "GOKZ Jump Miss Helper",
     author      = "jvnipers",
     description = "Create and manage jump zones that display how much you missed a jump by.",
-    version     = "1.0.0",
+    version     = "1.0.1",
     url         = "https://github.com/FemboyKZ/gokz-missedby"
 };
 
@@ -48,52 +48,49 @@ public Plugin myinfo =
 
 // ===== Zone store =====
 
-int    g_iZoneId[MAX_ZONES];
-char   g_sZoneName[MAX_ZONES][MAX_NAME_LEN];
-float  g_fZoneP0[MAX_ZONES][2];
-float  g_fZoneP1[MAX_ZONES][2];
-float  g_fZoneP2[MAX_ZONES][2];
-float  g_fZoneThreshZ[MAX_ZONES];
-bool   g_bZoneHasP2[MAX_ZONES];
-bool   g_bZoneThreshDown[MAX_ZONES];
-bool   g_bZoneIsDefault[MAX_ZONES];
-int    g_iZoneOwner[MAX_ZONES];    // client slot owning this zone, -1 = default
-char   g_sZoneOwnerSteamId[MAX_ZONES][STEAMID_LEN];
-int    g_iZoneCount;
-int    g_iActiveZone[MAXPLAYERS + 1];
+int       g_iZoneId[MAX_ZONES];
+char      g_sZoneName[MAX_ZONES][MAX_NAME_LEN];
+float     g_fZoneP0[MAX_ZONES][2];
+float     g_fZoneP1[MAX_ZONES][2];
+float     g_fZoneP2[MAX_ZONES][2];
+float     g_fZoneThreshZ[MAX_ZONES];
+bool      g_bZoneHasP2[MAX_ZONES];
+bool      g_bZoneThreshDown[MAX_ZONES];
+bool      g_bZoneIsDefault[MAX_ZONES];
+int       g_iZoneOwner[MAX_ZONES];    // client slot owning this zone, -1 = default
+char      g_sZoneOwnerSteamId[MAX_ZONES][STEAMID_LEN];
+int       g_iZoneCount;
 
 // ===== Cookies =====
+Handle    g_hCookieEnable;
 
-Handle g_hCookieEnable;
-
-// Per-client list of default-zone names the player has turned off.
-// Defaults are active for everyone unless their name appears here.
-ArrayList g_hDisabledDefaults[MAXPLAYERS + 1];
+// Per-client list of zone DB ids the player has turned off.
+// Every zone visible to a player (defaults + their own) is active unless its id
+// appears here. Keyed by id so it survives slot reindexing and map reloads.
+ArrayList g_hDisabledZones[MAXPLAYERS + 1];
 
 // ===== Per-client state =====
-
-bool   g_bEnable[MAXPLAYERS + 1];
-bool   g_bOldDuck[MAXPLAYERS + 1];
-float  g_fStartOrigin[MAXPLAYERS + 1][3];
-float  g_fEndOrigin[MAXPLAYERS + 1][3];
+bool      g_bEnable[MAXPLAYERS + 1];
+bool      g_bOldDuck[MAXPLAYERS + 1];
+float     g_fStartOrigin[MAXPLAYERS + 1][3];
+float     g_fEndOrigin[MAXPLAYERS + 1][3];
 
 // Zone setup workspace
-float  g_fWsP0[MAXPLAYERS + 1][2];
-float  g_fWsP1[MAXPLAYERS + 1][2];
-float  g_fWsP2[MAXPLAYERS + 1][2];
-float  g_fWsThreshZ[MAXPLAYERS + 1];
-bool   g_bWsThreshDown[MAXPLAYERS + 1];
-bool   g_bWsInProgress[MAXPLAYERS + 1];
-bool   g_bAwaitingName[MAXPLAYERS + 1];
-int    g_iPlaceMode[MAXPLAYERS + 1];    // PLACE_MODE_SNAP, PLACE_MODE_PRECISE, or PLACE_MODE_FEET
+float     g_fWsP0[MAXPLAYERS + 1][2];
+float     g_fWsP1[MAXPLAYERS + 1][2];
+float     g_fWsP2[MAXPLAYERS + 1][2];
+float     g_fWsThreshZ[MAXPLAYERS + 1];
+bool      g_bWsThreshDown[MAXPLAYERS + 1];
+bool      g_bWsInProgress[MAXPLAYERS + 1];
+bool      g_bAwaitingName[MAXPLAYERS + 1];
+int       g_iPlaceMode[MAXPLAYERS + 1];    // PLACE_MODE_SNAP, PLACE_MODE_PRECISE, or PLACE_MODE_FEET
 
 // Workspace cross markers - indices: 0=p0, 1=p1, 2=p2, 3=threshz
-float  g_fWsPos3D[MAXPLAYERS + 1][4][3];
-bool   g_bWsPosSet[MAXPLAYERS + 1][4];
-Handle g_hWsCrossTimer[MAXPLAYERS + 1];
+float     g_fWsPos3D[MAXPLAYERS + 1][4][3];
+bool      g_bWsPosSet[MAXPLAYERS + 1][4];
+Handle    g_hWsCrossTimer[MAXPLAYERS + 1];
 
 // ===== DB =====
-
 enum DatabaseType
 {
     DatabaseType_SQLite = 0,
@@ -136,7 +133,6 @@ public void OnMapStart()
     g_iZoneCount = 0;
     for (int i = 1; i <= MaxClients; i++)
     {
-        g_iActiveZone[i]   = -1;
         g_hWsCrossTimer[i] = null;
         g_bWsInProgress[i] = false;
         for (int j = 0; j < 4; j++)
@@ -160,14 +156,13 @@ public void OnClientPutInServer(int client)
     {
         g_bEnable[client] = true;
     }
-    delete g_hDisabledDefaults[client];
-    g_hDisabledDefaults[client] = new ArrayList(ByteCountToCells(MAX_NAME_LEN));
-    g_bWsInProgress[client] = false;
-    g_bAwaitingName[client] = false;
-    g_iPlaceMode[client]    = PLACE_MODE_SNAP;
-    g_bWsThreshDown[client] = true;
-    g_hWsCrossTimer[client] = null;
-    g_iActiveZone[client]   = -1;
+    delete g_hDisabledZones[client];
+    g_hDisabledZones[client] = new ArrayList();
+    g_bWsInProgress[client]  = false;
+    g_bAwaitingName[client]  = false;
+    g_iPlaceMode[client]     = PLACE_MODE_SNAP;
+    g_bWsThreshDown[client]  = true;
+    g_hWsCrossTimer[client]  = null;
     for (int i = 0; i < 4; i++)
         g_bWsPosSet[client][i] = false;
 }
@@ -181,7 +176,7 @@ public void OnClientPostAdminCheck(int client)
 public void OnClientDisconnect(int client)
 {
     delete g_hWsCrossTimer[client];
-    delete g_hDisabledDefaults[client];
+    delete g_hDisabledZones[client];
     RemoveClientZones(client);
 }
 
@@ -626,7 +621,6 @@ public Action CmdSayListener(int client, const char[] command, int argc)
 }
 
 // ===== Menus =====
-
 void OpenMainMenu(int client)
 {
     Menu menu = new Menu(MenuHandler_Main);
@@ -636,12 +630,7 @@ void OpenMainMenu(int client)
     FormatEx(toggleLabel, sizeof(toggleLabel), "Helper: %s", g_bEnable[client] ? "ON" : "OFF");
     menu.AddItem("toggle", toggleLabel);
 
-    char zonesLabel[MAX_NAME_LEN + 24];
-    if (g_iActiveZone[client] >= 0)
-        FormatEx(zonesLabel, sizeof(zonesLabel), "Zones  [%s]", g_sZoneName[g_iActiveZone[client]]);
-    else
-        strcopy(zonesLabel, sizeof(zonesLabel), "Zones");
-    menu.AddItem("zones", zonesLabel);
+    menu.AddItem("zones", "Zones");
 
     menu.AddItem("", "---", ITEMDRAW_DISABLED);
     menu.AddItem("setup", g_bWsInProgress[client] ? "Continue Zone Setup..." : "New Zone Setup");
@@ -687,31 +676,30 @@ void OpenZonesMenu(int client)
     menu.ExitBackButton = true;
 
     bool anyZone        = false;
+    bool anyCustom      = false;
     for (int i = 0; i < g_iZoneCount; i++)
     {
         if (g_iZoneOwner[i] != -1 && g_iZoneOwner[i] != client)
             continue;
         anyZone = true;
+        if (!g_bZoneIsDefault[i])
+            anyCustom = true;
         char label[MAX_NAME_LEN + 16];
         char info[8];
         FormatEx(info, sizeof(info), "z%d", i);
-        if (g_bZoneIsDefault[i])
-            FormatEx(label, sizeof(label), "[D] %s  [%s]",
-                     g_sZoneName[i], IsDefaultDisabled(client, i) ? "OFF" : "ON");
-        else
-            FormatEx(label, sizeof(label), "%s%s",
-                     g_sZoneName[i], i == g_iActiveZone[client] ? " [active]" : "");
+        FormatEx(label, sizeof(label), "%s%s  [%s]",
+                 g_bZoneIsDefault[i] ? "[D] " : "",
+                 g_sZoneName[i],
+                 IsZoneDisabled(client, i) ? "OFF" : "ON");
         menu.AddItem(info, label);
     }
     if (!anyZone)
         menu.AddItem("", "No zones for this map", ITEMDRAW_DISABLED);
 
-    if (g_iActiveZone[client] >= 0 && !g_bZoneIsDefault[g_iActiveZone[client]])
+    if (anyCustom)
     {
         menu.AddItem("", "---", ITEMDRAW_DISABLED);
-        char delLabel[MAX_NAME_LEN + 10];
-        FormatEx(delLabel, sizeof(delLabel), "Delete \"%s\"", g_sZoneName[g_iActiveZone[client]]);
-        menu.AddItem("delete", delLabel);
+        menu.AddItem("delete", "Delete a zone...");
     }
 
     menu.Display(client, MENU_TIME_FOREVER);
@@ -729,44 +717,78 @@ public int MenuHandler_Zones(Menu menu, MenuAction action, int client, int param
             int idx = StringToInt(info[1]);
             if (idx >= 0 && idx < g_iZoneCount)
             {
-                if (g_bZoneIsDefault[idx])
-                {
-                    // Defaults are on for everyone; this toggles the per-player opt-out.
-                    bool nowOff = !IsDefaultDisabled(client, idx);
-                    SetDefaultDisabled(client, idx, nowOff);
-                    GOKZ_PrintToChat(client, true, "{default}Default zone {purple}%s{default}: %s",
-                                     g_sZoneName[idx], nowOff ? "{darkred}OFF" : "{green}ON");
-                    if (!nowOff)
-                        FlashZone(client, idx);
-                }
-                else if (g_iActiveZone[client] == idx)
-                {
-                    // Toggle the selected custom zone back off.
-                    g_iActiveZone[client] = -1;
-                    GOKZ_PrintToChat(client, true, "{default}Active zone cleared.");
-                }
-                else
-                {
-                    g_iActiveZone[client] = idx;
-                    GOKZ_PrintToChat(client, true, "{default}Active zone: {purple}%s", g_sZoneName[idx]);
+                // Every zone is independently toggleable; on by default.
+                bool nowOff = !IsZoneDisabled(client, idx);
+                SetZoneDisabled(client, idx, nowOff);
+                GOKZ_PrintToChat(client, true, "{default}%s{purple}%s{default}: %s",
+                                 g_bZoneIsDefault[idx] ? "Default zone " : "Zone ",
+                                 g_sZoneName[idx], nowOff ? "{darkred}OFF" : "{green}ON");
+                if (!nowOff)
                     FlashZone(client, idx);
-                }
             }
             OpenZonesMenu(client);
         }
         else if (StrEqual(info, "delete"))
         {
-            if (g_iActiveZone[client] >= 0 && !g_bZoneIsDefault[g_iActiveZone[client]])
-            {
-                OpenDeleteConfirmMenu(client, g_iActiveZone[client]);
-                return 0;
-            }
+            OpenDeleteListMenu(client);
+            return 0;
         }
     }
     else if (action == MenuAction_Cancel)
     {
         if (param2 == MenuCancel_ExitBack)
             OpenMainMenu(client);
+    }
+    else if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    return 0;
+}
+
+void OpenDeleteListMenu(int client)
+{
+    Menu menu = new Menu(MenuHandler_DeleteList);
+    menu.SetTitle("Delete which zone?");
+    menu.ExitBackButton = true;
+
+    bool any            = false;
+    for (int i = 0; i < g_iZoneCount; i++)
+    {
+        if (g_bZoneIsDefault[i] || g_iZoneOwner[i] != client)
+            continue;
+        any = true;
+        char info[8];
+        FormatEx(info, sizeof(info), "d%d", i);
+        menu.AddItem(info, g_sZoneName[i]);
+    }
+    if (!any)
+        menu.AddItem("", "No custom zones to delete", ITEMDRAW_DISABLED);
+
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_DeleteList(Menu menu, MenuAction action, int client, int param2)
+{
+    if (action == MenuAction_Select)
+    {
+        char info[8];
+        menu.GetItem(param2, info, sizeof(info));
+        if (info[0] == 'd')
+        {
+            int idx = StringToInt(info[1]);
+            if (idx >= 0 && idx < g_iZoneCount && !g_bZoneIsDefault[idx] && g_iZoneOwner[idx] == client)
+            {
+                OpenDeleteConfirmMenu(client, idx);
+                return 0;
+            }
+        }
+        OpenZonesMenu(client);
+    }
+    else if (action == MenuAction_Cancel)
+    {
+        if (param2 == MenuCancel_ExitBack)
+            OpenZonesMenu(client);
     }
     else if (action == MenuAction_End)
     {
@@ -802,11 +824,7 @@ public int MenuHandler_DeleteConfirm(Menu menu, MenuAction action, int client, i
         {
             int idx = StringToInt(info[1]);
             if (idx >= 0 && idx < g_iZoneCount && !g_bZoneIsDefault[idx] && g_iZoneOwner[idx] == client)
-            {
-                if (g_iActiveZone[client] == idx)
-                    g_iActiveZone[client] = -1;
                 DB_DeleteZone(client, idx);
-            }
         }
         else
         {
@@ -1251,8 +1269,8 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
     GetClientAbsOrigin(client, g_fEndOrigin[client]);
     g_bOldDuck[client] = Movement_GetDucking(client);
 
-    float startZ = g_fStartOrigin[client][2];
-    float endZ   = g_fEndOrigin[client][2];
+    float startZ       = g_fStartOrigin[client][2];
+    float endZ         = g_fEndOrigin[client][2];
 
     // Audience = the runner plus anyone spectating them, who has the helper on.
     // Each viewer is judged against the zones active for THAT viewer, so default
@@ -1291,36 +1309,36 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 }
 
 // Whether zone z should fire for viewer.
-// Default zones are on for everyone unless the viewer turned that name off.
-// Custom zones fire only for their owner while selected as the active zone.
+// Every zone visible to the viewer (defaults, plus their own custom zones) is on by default;
+// the viewer can independently toggle any of them off.
 bool IsZoneActiveFor(int viewer, int z)
 {
-    if (g_bZoneIsDefault[z])
-        return !IsDefaultDisabled(viewer, z);
-    return g_iZoneOwner[z] == viewer && g_iActiveZone[viewer] == z;
-}
-
-bool IsDefaultDisabled(int client, int z)
-{
-    if (g_hDisabledDefaults[client] == null)
+    if (!g_bZoneIsDefault[z] && g_iZoneOwner[z] != viewer)
         return false;
-    return g_hDisabledDefaults[client].FindString(g_sZoneName[z]) != -1;
+    return !IsZoneDisabled(viewer, z);
 }
 
-void SetDefaultDisabled(int client, int z, bool disabled)
+bool IsZoneDisabled(int client, int z)
 {
-    if (g_hDisabledDefaults[client] == null)
-        g_hDisabledDefaults[client] = new ArrayList(ByteCountToCells(MAX_NAME_LEN));
+    if (g_hDisabledZones[client] == null)
+        return false;
+    return g_hDisabledZones[client].FindValue(g_iZoneId[z]) != -1;
+}
 
-    int idx = g_hDisabledDefaults[client].FindString(g_sZoneName[z]);
+void SetZoneDisabled(int client, int z, bool disabled)
+{
+    if (g_hDisabledZones[client] == null)
+        g_hDisabledZones[client] = new ArrayList();
+
+    int idx = g_hDisabledZones[client].FindValue(g_iZoneId[z]);
     if (disabled)
     {
         if (idx == -1)
-            g_hDisabledDefaults[client].PushString(g_sZoneName[z]);
+            g_hDisabledZones[client].Push(g_iZoneId[z]);
     }
     else if (idx != -1)
     {
-        g_hDisabledDefaults[client].Erase(idx);
+        g_hDisabledZones[client].Erase(idx);
     }
 }
 
@@ -1355,7 +1373,7 @@ bool ComputeZoneMiss(int client, int z, float startZ, float endZ,
     estOrigin[0] = g_fStartOrigin[client][0] + t * (g_fEndOrigin[client][0] - g_fStartOrigin[client][0]) - 16.0;
     estOrigin[1] = g_fStartOrigin[client][1] + t * (g_fEndOrigin[client][1] - g_fStartOrigin[client][1]) + 16.0;
 
-    float d = GetDistance2D(estOrigin, g_fZoneP0[z], g_fZoneP1[z]);
+    float d      = GetDistance2D(estOrigin, g_fZoneP0[z], g_fZoneP1[z]);
     if (g_bZoneHasP2[z])
         d = FloatMin(d, GetDistance2D(estOrigin, g_fZoneP2[z], g_fZoneP1[z]));
 
@@ -1363,7 +1381,7 @@ bool ComputeZoneMiss(int client, int z, float startZ, float endZ,
     float estOrigin2[2];
     estOrigin2[0] = estOrigin[0] + 32.0;
     estOrigin2[1] = estOrigin[1];
-    d = FloatMin(d, GetDistance2D(estOrigin2, g_fZoneP0[z], g_fZoneP1[z]));
+    d             = FloatMin(d, GetDistance2D(estOrigin2, g_fZoneP0[z], g_fZoneP1[z]));
     if (g_bZoneHasP2[z])
         d = FloatMin(d, GetDistance2D(estOrigin2, g_fZoneP2[z], g_fZoneP1[z]));
 
@@ -1552,25 +1570,17 @@ void WsCrossBeams(int client, float pos[3], float life, int r, int g, int b)
 
 // ===== Per-player zone management =====
 
+// Disabled state is tracked per client by zone DB id, so slot reindexing here
+// needs no remap - the id travels with the slot via CopyZoneSlot.
 void RemoveDefaultZones()
 {
     int write = 0;
     for (int read = 0; read < g_iZoneCount; read++)
     {
         if (g_iZoneOwner[read] == -1)
-        {
-            for (int c = 1; c <= MaxClients; c++)
-                if (g_iActiveZone[c] == read)
-                    g_iActiveZone[c] = -1;
             continue;
-        }
         if (write != read)
-        {
             CopyZoneSlot(read, write);
-            for (int c = 1; c <= MaxClients; c++)
-                if (g_iActiveZone[c] == read)
-                    g_iActiveZone[c] = write;
-        }
         write++;
     }
     g_iZoneCount = write;
@@ -1582,19 +1592,9 @@ void RemoveClientZones(int client)
     for (int read = 0; read < g_iZoneCount; read++)
     {
         if (g_iZoneOwner[read] == client)
-        {
-            for (int c = 1; c <= MaxClients; c++)
-                if (g_iActiveZone[c] == read)
-                    g_iActiveZone[c] = -1;
             continue;
-        }
         if (write != read)
-        {
             CopyZoneSlot(read, write);
-            for (int c = 1; c <= MaxClients; c++)
-                if (g_iActiveZone[c] == read)
-                    g_iActiveZone[c] = write;
-        }
         write++;
     }
     g_iZoneCount = write;
@@ -1646,12 +1646,8 @@ public Action CmdExportZone(int client, int args)
     }
     else
     {
-        zoneIdx = g_iActiveZone[client];
-        if (zoneIdx < 0)
-        {
-            GOKZ_PrintToChat(client, true, "{darkred}No active zone. Select one first or specify a name.");
-            return Plugin_Handled;
-        }
+        GOKZ_PrintToChat(client, true, "{darkred}Usage: {default}sm_miss_export <zone name>");
+        return Plugin_Handled;
     }
 
     char mapName[PLATFORM_MAX_PATH];
