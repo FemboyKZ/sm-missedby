@@ -15,8 +15,8 @@ public Plugin myinfo =
 {
     name        = "FKZ Miss Helper",
     author      = "jvnipers",
-    description = "Create and manage jump zones that display how much you missed a jump by.",
-    version     = "1.0.2",
+    description = "Create and manage zones that display how much you missed a jump by.",
+    version     = "1.0.3",
     url         = "https://github.com/FemboyKZ/sm-missedby"
 };
 
